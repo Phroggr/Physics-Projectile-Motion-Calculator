@@ -1,0 +1,165 @@
+import numpy as np
+from scipy.integrate import solve_ivp
+import matplotlib.pyplot as plt
+
+
+#Differential Solver
+def dSdt(t, S, B):
+    x, vx, y, vy = S
+    return [
+        vx,
+        -B * np.sqrt(vx**2 + vy**2) * vx,
+        vy,
+        -1 - B * np.sqrt(vx**2 + vy**2) * vy,
+    ]
+
+
+#All the Variables Needed
+rho = 1.225  #Air density kg/m^3
+g = 9.81     #Gravity m/s^2
+
+
+r_soc = 0.22 / 2 #Radius of ball
+Cd_soc = 0.05 #Drag Coefficient
+m_soc = 0.2 # Mass of Ball
+V = 30 # initial speed
+B_soc = 0.5 * rho * np.pi * r_soc**2 * Cd_soc * g / m_soc
+
+
+#Plotting Functions
+def simulate_trajectories(B=1):
+    """Simulate and plot trajectories for three launch angles."""
+    angles = [40, 45, 50]
+    t_range = np.linspace(0, 2, 1000)
+
+    for angle in angles:
+        theta = np.radians(angle)
+        sol = solve_ivp(
+            dSdt, [0, 2],
+            y0=[0, V * np.cos(theta), 0, V * np.sin(theta)],
+            t_eval=t_range,
+            args=(B,)
+        )
+        plt.plot(sol.y[0], sol.y[2], label=fr"$\theta_0={angle}^\circ$")
+
+    plt.ylim(bottom=0)
+    plt.legend()
+    plt.xlabel("$x/g$ [s²]", fontsize=16)
+    plt.ylabel("$y/g$ [s²]", fontsize=16)
+    plt.title("Projectile Trajectories with Air Resistance")
+    plt.show()
+
+
+def get_distance(angle, B, V=1, t=2):
+    v0x = V * np.cos(angle * np.pi / 180)
+    v0y = V * np.sin(angle * np.pi / 180)
+
+    sol = solve_ivp(
+        dSdt, [0, t],
+        y0=[0, v0x, 0, v0y],
+        t_eval=np.linspace(0, t, 10000),
+        args=(B,),
+        atol=1e-7, rtol=1e-4
+    )
+
+    # Extend simulation time if projectile hasn't hit the ground yet
+    while np.all(sol.y[2] > 0):
+        t *= 1.5
+        sol = solve_ivp(
+            dSdt, [0, t],
+            y0=[0, v0x, 0, v0y],
+            t_eval=np.linspace(0, t, 10000),
+            args=(B,),
+            atol=1e-7, rtol=1e-4
+        )
+        if t > 20:  # safety stop
+            return np.nan
+
+    indices = np.where(np.diff(np.sign(sol.y[2])) < 0)[0]
+    if len(indices) == 0:
+        return np.nan
+
+    just_above_idx = indices[0]
+    just_below_idx = just_above_idx + 1
+    x_loc = (sol.y[0][just_above_idx] + sol.y[0][just_below_idx]) / 2
+    return x_loc
+        
+
+
+def distance_vs_angle(B=1):
+    angles = np.linspace(15, 30, 150)
+    x_locs = []
+
+    for angle in angles:
+        x = get_distance(angle, B)
+        if np.isnan(x) or x < 0:
+            x = 0
+        x_locs.append(x)
+
+    x_locs = np.array(x_locs)
+    plt.plot(angles, x_locs)
+    plt.xlabel('Launch Angle [degrees]', fontsize=20)
+    plt.ylabel('Maximum Distance [distance/gravity]', fontsize=16)
+    plt.axvline(angles[np.argmax(x_locs)], ls='--', color='r', label='Optimal Angle')
+    plt.title(f'Distance Travelled at V={V} and B={B}', fontsize=16)
+    plt.legend()
+    plt.grid(True)
+    plt.show()
+
+    print(f"Optimal angle: {angles[np.argmax(x_locs)]:.2f}°")
+    print(f"Max distance: {x_locs[np.argmax(x_locs)] * 9.8:.4f}")
+
+
+
+def optimal_angle_vs_drag():
+    """Plot optimal launch angle as drag changes."""
+    V1, V2 = 1, 2
+    angles = np.linspace(35, 45, 200)
+    Bs = np.linspace(0, 1, 50)
+
+    results_v1 = [np.vectorize(get_distance)(angles, B, V1) for B in Bs]
+    results_v2 = [np.vectorize(get_distance)(angles, B, V2, t=6) for B in Bs]
+
+    opt_angles_v1 = [angles[np.nanargmax(res)] for res in results_v1]
+    opt_angles_v2 = [angles[np.nanargmax(res)] for res in results_v2]
+
+    plt.plot(Bs, opt_angles_v1, 'o--', label='$v_0/g=1$')
+    plt.plot(Bs, opt_angles_v2, 'o--', label='$v_0/g=2$')
+    #plt.axvline(B_golf, ls='--', color='r', label="Golf Ball")
+    plt.axvline(B_soc, ls='--', color='purple', label="Soccer Ball")
+    plt.legend(fontsize=12)
+    plt.xlabel('b·g/m [1/s²]', fontsize=16)
+    plt.ylabel('Optimal Angle [°]', fontsize=16)
+    plt.grid()
+    plt.title("Optimal Launch Angle vs Drag Coefficient")
+    plt.show()
+
+
+def main():
+    print("\n--- Projectile Motion Simulator ---")
+    print("1. Plot trajectories for multiple angles")
+    print("2. Plot distance vs angle")
+    print("3. Plot optimal angle vs drag")
+    print("4. Display Trajectory Stats for Given Values [Not Working]")
+    print("5. Exit")
+
+    while True:
+        choice = input("\nSelect an option (1–5): ")
+
+        if choice == "1":
+            simulate_trajectories()
+        elif choice == "2":
+            distance_vs_angle()
+        elif choice == "3":
+            optimal_angle_vs_drag()
+        elif choice == "4":
+            break
+        elif choice == "5":
+            break
+        else:
+            print("Invalid choice. Please enter a number from 1 to 5.")
+
+
+
+if __name__ == "__main__":
+    main()
